@@ -1,0 +1,9 @@
+{
+  "name": "bemvinhos-stripe",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Stripe Checkout endpoint for BEMVINHOS agency fee (Facture 1)",
+  "dependencies": {
+    "stripe": "^16.0.0"
+  }
+}
