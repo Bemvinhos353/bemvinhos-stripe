@@ -21,10 +21,9 @@ const FEE_MAX_CENTS = 8000;
 // Promo codes — MUST match the website (BEMVINHOS.dc.html → PROMO_CODES).
 // Discount is applied to the agency fee base, before taxes.
 const PROMO_CODES = {
-  DEGUSTATION: { pct: 15 },
-  MERCI10: { pct: 10 },
-  AMI25: { pct: 25 },
-  VIP95: { pct: 95 },
+ AMI25: { pct: 25 },
+  'VIP75@BEM': { pct: 75 },
+  'VIP50@VINHOS': { pct: 50 },
 };
 // -----------------------------------------------------------------------------
 
