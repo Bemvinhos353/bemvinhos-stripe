@@ -21,7 +21,9 @@ const FEE_MAX_CENTS = 8000;
 // Promo codes — MUST match the website (BEMVINHOS.dc.html → PROMO_CODES).
 // Discount is applied to the agency fee base, before taxes.
 const PROMO_CODES = {
- AMI25: { pct: 25 },
+  DEGUSTATION: { pct: 15 },
+  MERCI10: { pct: 10 },
+  AMI25: { pct: 25 },
   'VIP75@BEM': { pct: 75 },
   'VIP50@VINHOS': { pct: 50 },
 };
@@ -80,6 +82,18 @@ module.exports = async (req, res) => {
 
     const SITE = process.env.SITE_URL || 'https://bemvinhos.com';
 
+    // Order details, stored on BOTH the Checkout Session and the PaymentIntent.
+    const orderMeta = {
+      cases: String(totalCases),
+      bottles: String(bottles),
+      agency_base: (agencyBaseCents / 100).toFixed(2),
+      promo_code: promoApplied,
+      discount: (discountCents / 100).toFixed(2),
+      total: (amountCents / 100).toFixed(2),
+      pickup_branch: branch,
+      items: itemsSummary,
+    };
+
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       payment_method_types: ['card'],
@@ -95,15 +109,12 @@ module.exports = async (req, res) => {
         },
       }],
       customer_creation: 'always',
-      metadata: {
-        cases: String(totalCases),
-        bottles: String(bottles),
-        agency_base: (agencyBaseCents / 100).toFixed(2),
-        promo_code: promoApplied,
-        discount: (discountCents / 100).toFixed(2),
-        total: (amountCents / 100).toFixed(2),
-        pickup_branch: branch,
-        items: itemsSummary,
+      metadata: orderMeta,
+      // Also stamp the order on the PaymentIntent + receipt so the details are
+      // visible directly on the Payments page and in the emailed receipt.
+      payment_intent_data: {
+        description: `BEMVINHOS — ${itemsSummary} → ${branch}`,
+        metadata: orderMeta,
       },
       success_url: `${SITE}/?paid=1&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${SITE}/?canceled=1#commander`,
