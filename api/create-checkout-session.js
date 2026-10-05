@@ -5,15 +5,19 @@
 // Required environment variables (Vercel → Settings → Environment Variables):
 //   STRIPE_SECRET_KEY   sk_live_... (or sk_test_... while testing)
 //   SITE_URL            https://bemvinhos.com   (return page after paying)
+//
+// After each payment Stripe creates a PDF INVOICE and emails it to the customer
+// (wines, cases, pickup branch, fee breakdown). Turn on emails in:
+//   Stripe Dashboard → Settings → Customer emails → "Successful payments"
 
 const Stripe = require('stripe');
 
 // --- Fee model (must match the website) --------------------------------------
-// The agency fee VARIES per wine (the "Agency fee per case" column in the wine
-// sheet). The site sends each cart item with its per-case fee in cents; here we
-// re-total it and add the same taxes, so the Stripe charge equals the panier.
 //   online = agencyBase × (1 + 3% Stripe + 5% TPS + 9,975% TVQ)
-const TAX_TXN_MULTIPLIER = 1.17975;
+const TXN_RATE = 0.03;
+const TPS_RATE = 0.05;
+const TVQ_RATE = 0.09975;
+const TAX_TXN_MULTIPLIER = 1 + TXN_RATE + TPS_RATE + TVQ_RATE; // 1.17975
 // Safety clamp on the per-case fee we accept (cents): $10–$80 per case.
 const FEE_MIN_CENTS = 1000;
 const FEE_MAX_CENTS = 8000;
@@ -28,7 +32,13 @@ const PROMO_CODES = {
   'VIP50@VINHOS': { pct: 50 },
   'AIRBUS50@BEM': { pct: 50 },
 };
+
+// Used when the customer doesn't choose a pickup branch.
+const DEFAULT_BRANCH = 'Centre de distribution SAQ — 1947 Rue des Futailles, Montréal, QC H1N 3P1';
 // -----------------------------------------------------------------------------
+
+const money = (cents) => (cents / 100).toFixed(2).replace('.', ',') + ' $';
+const cut = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -46,19 +56,25 @@ module.exports = async (req, res) => {
     // Re-total the agency fee from each item (cases × per-case fee, clamped).
     let agencyBaseCents = 0;
     let totalCases = 0;
+    let bottles = 0;
+    const lines = [];
     for (const it of items) {
       const cases = Math.max(0, Math.round(Number(it.cases) || 0));
+      if (!cases) continue;
+      const box = Number(it.boxSize) === 3 ? 3 : 6;
       let fee = Math.round(Number(it.feeCents) || 0);
       if (fee < FEE_MIN_CENTS) fee = FEE_MIN_CENTS;
       if (fee > FEE_MAX_CENTS) fee = FEE_MAX_CENTS;
       agencyBaseCents += fee * cases;
       totalCases += cases;
+      bottles += cases * box;
+      lines.push({ name: String(it.name || ''), cases, box, feeCents: fee });
     }
     if (totalCases < 1 || agencyBaseCents <= 0) {
       return res.status(400).json({ error: 'invalid_cart' });
     }
 
-    // Apply promo code to the agency fee base (before taxes), if valid.
+    // Promo code on the agency fee base (before taxes).
     let discountCents = 0;
     let promoApplied = '';
     const promo = PROMO_CODES[String(body.promoCode || '').trim().toUpperCase()];
@@ -69,21 +85,39 @@ module.exports = async (req, res) => {
         : Math.min(Math.round((promo.amount || 0) * 100), agencyBaseCents);
     }
     const netBaseCents = Math.max(0, agencyBaseCents - discountCents);
-
     const amountCents = Math.round(netBaseCents * TAX_TXN_MULTIPLIER);
-    const bottles = totalCases * 6;
 
-    const branch = body.branch
-      ? `${body.branch.address}, ${body.branch.city} (#${body.branch.num})`
-      : 'À préciser';
-    const itemsSummary = items
-      .map((it) => `${it.cases}×6 ${it.name}`)
-      .join(' · ')
-      .slice(0, 480);
+    // Breakdown for the invoice (txn/TPS rounded, TVQ absorbs the last cent).
+    const txnCents = Math.round(netBaseCents * TXN_RATE);
+    const tpsCents = Math.round(netBaseCents * TPS_RATE);
+    const tvqCents = amountCents - netBaseCents - txnCents - tpsCents;
+
+    const branch = body.branch && body.branch.address
+      ? `SAQ ${body.branch.city} — ${body.branch.address}${body.branch.num && body.branch.num !== 'CD' ? ' (#' + body.branch.num + ')' : ''}`
+      : DEFAULT_BRANCH;
+
+    const itemsSummary = lines.map((l) => `${l.cases}×${l.box} ${l.name}`).join(' · ');
+
+    // Invoice footer: full order detail (shown on the PDF + email).
+    const footer = [
+      'DÉTAIL DE LA COMMANDE',
+      ...lines.map((l) => `• ${l.name} — ${l.cases} caisse(s) de ${l.box} (${l.cases * l.box} bt) · frais ${money(l.feeCents)}/caisse = ${money(l.feeCents * l.cases)}`),
+      '',
+      `Frais d'agence : ${money(agencyBaseCents)}`,
+      ...(discountCents ? [`Rabais (${promoApplied}) : – ${money(discountCents)}`] : []),
+      `Frais de transaction (3 %) : ${money(txnCents)}`,
+      `TPS (5 %) : ${money(tpsCents)}`,
+      `TVQ (9,975 %) : ${money(tvqCents)}`,
+      `Total payé (Facture 1) : ${money(amountCents)}`,
+      '',
+      `Succursale de cueillette : ${branch}`,
+      '',
+      "Facture 2 — Le prix du vin est payé directement à la SAQ lors de la cueillette.",
+      'Nous vous écrirons dès que votre commande est prête. Merci ! — BEMVINHOS · asantos@bemvinhos.com',
+    ].join('\n');
 
     const SITE = process.env.SITE_URL || 'https://bemvinhos.com';
 
-    // Order details, stored on BOTH the Checkout Session and the PaymentIntent.
     const orderMeta = {
       cases: String(totalCases),
       bottles: String(bottles),
@@ -91,8 +125,8 @@ module.exports = async (req, res) => {
       promo_code: promoApplied,
       discount: (discountCents / 100).toFixed(2),
       total: (amountCents / 100).toFixed(2),
-      pickup_branch: branch,
-      items: itemsSummary,
+      pickup_branch: cut(branch, 480),
+      items: cut(itemsSummary, 480),
     };
 
     const session = await stripe.checkout.sessions.create({
@@ -105,17 +139,29 @@ module.exports = async (req, res) => {
           unit_amount: amountCents,
           product_data: {
             name: "BEMVINHOS — Frais d'agence (Facture 1)",
-            description: `${totalCases} caisse(s) de 6 · ${bottles} bouteilles · frais et taxes inclus`,
+            description: cut(`${totalCases} caisse(s) · ${bottles} bouteilles · ${itemsSummary} · frais et taxes inclus`, 480),
           },
         },
       }],
       customer_creation: 'always',
       metadata: orderMeta,
-      // Also stamp the order on the PaymentIntent + receipt so the details are
-      // visible directly on the Payments page and in the emailed receipt.
       payment_intent_data: {
-        description: `BEMVINHOS — ${itemsSummary} → ${branch}`,
+        description: cut(`BEMVINHOS — ${itemsSummary} → ${branch}`, 900),
         metadata: orderMeta,
+      },
+      // Creates a PDF invoice after payment, emailed to the customer.
+      invoice_creation: {
+        enabled: true,
+        invoice_data: {
+          description: cut(`Commande BEMVINHOS — ${totalCases} caisse(s), ${bottles} bouteilles`, 480),
+          metadata: orderMeta,
+          custom_fields: [
+            { name: 'Cueillette', value: cut(branch, 140) },
+            { name: 'Bouteilles', value: `${bottles} (${totalCases} caisse${totalCases > 1 ? 's' : ''})` },
+            ...(promoApplied ? [{ name: 'Code promo', value: promoApplied }] : []),
+          ],
+          footer: cut(footer, 4900),
+        },
       },
       success_url: `${SITE}/?paid=1&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${SITE}/?canceled=1#commander`,
