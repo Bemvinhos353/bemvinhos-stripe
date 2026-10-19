@@ -33,6 +33,10 @@ const PROMO_CODES = {
   'AIRBUS50@BEM': { pct: 50 },
 };
 
+// Wines not yet in SAQ inventory — orders containing them are refused.
+// Must match COMING_SOON_WINERIES on the website. Empty it when they arrive: []
+const BLOCKED_WINERIES = ['Vinha dos 9'];
+
 // Used when the customer doesn't choose a pickup branch.
 const DEFAULT_BRANCH = 'Centre de distribution SAQ — 1947 Rue des Futailles, Montréal, QC H1N 3P1';
 // -----------------------------------------------------------------------------
@@ -52,6 +56,9 @@ module.exports = async (req, res) => {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     const items = Array.isArray(body.items) ? body.items : [];
     if (!items.length) return res.status(400).json({ error: 'empty_cart' });
+    const blocked = items.some((it) =>
+      BLOCKED_WINERIES.some((w) => String(it.winery || '') === w || String(it.name || '').startsWith(w)));
+    if (blocked) return res.status(400).json({ error: 'not_in_inventory' });
 
     // Re-total the agency fee from each item (cases × per-case fee, clamped).
     let agencyBaseCents = 0;
