@@ -69,7 +69,7 @@ module.exports = async (req, res) => {
             unit_amount: 8500,
             product_data: {
               name: 'BEMVINHOS — Dîner-dégustation Porto Mar',
-              description: "Jeudi 26 novembre 2026, 19 h 15 · 201, place d'Youville · Six vins, six plats · Taxes et pourboire inclus",
+              description: "Tasting dinner at Porto Mar, Nov 26 — food and wine served by Porto Mar. Jeudi 26 novembre 2026, 19 h 15 · 201, place d'Youville · Six vins, six plats · Taxes et pourboire inclus",
             },
           },
         }],
@@ -80,10 +80,10 @@ module.exports = async (req, res) => {
         invoice_creation: {
           enabled: true,
           invoice_data: {
-            description: `Dîner-dégustation Porto Mar — ${seats} place(s)`,
+            description: `Tasting dinner at Porto Mar, Nov 26 — food and wine served by Porto Mar. (${seats} place(s))`,
             metadata: meta,
             custom_fields: [{ name: 'Date', value: 'Jeu. 26 nov. 2026, 19 h 15' }, { name: 'Places', value: String(seats) }],
-            footer: "Porto Mar, 201, place d'Youville, Vieux-Montréal. Taxes et pourboire inclus. Au plaisir de vous y voir ! — BEMVINHOS · asantos@bemvinhos.com",
+            footer: "Tasting dinner at Porto Mar, Nov 26 — food and wine served by Porto Mar. Porto Mar, 201, place d'Youville, Vieux-Montréal. Taxes et pourboire inclus. Au plaisir de vous y voir ! — BEMVINHOS · asantos@bemvinhos.com",
           },
         },
         success_url: `${SITE_T}/?tasting=1#degustations`,
