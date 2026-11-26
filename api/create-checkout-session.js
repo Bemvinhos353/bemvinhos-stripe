@@ -30,7 +30,7 @@ const PROMO_CODES = {
   AMI25: { pct: 25 },
   'VIP75@BEM': { pct: 75 },
   'VIP50@VINHOS': { pct: 50 },
-  'AIRBUS50@BEM': { pct: 50 },
+  'TASTING40@BEM': { pct: 40 },
 };
 
 // Wines not yet in SAQ inventory — orders containing them are refused.
