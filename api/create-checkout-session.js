@@ -56,6 +56,7 @@ module.exports = async (req, res) => {
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     // ---- Tasting dinner tickets: 85 $ per guest, all included (tax + tip) ----
     if (body.type === 'tasting') {
+      return res.status(400).json({ error: 'sold_out' }); // Porto Mar Nov 26 — sold out
       const seats = Math.max(1, Math.min(10, Math.round(Number(body.seats) || 1)));
       const SITE_T = process.env.SITE_URL || 'https://bemvinhos.com';
       const meta = { type: 'tasting', event: 'Porto Mar — 26 nov. 2026, 19 h 15', seats: String(seats) };
